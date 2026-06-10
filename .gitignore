@@ -3,3 +3,4 @@ server.err.log
 auth-test.out.log
 auth-test.err.log
 node_modules/
+social-output/
