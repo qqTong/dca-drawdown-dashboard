@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { calculateDrawdown, getStrategy } = require("../strategy");
-const { isCompletedCandle } = require("../data-service");
+const { parseNasdaqDate, parseNasdaqNumber } = require("../data-service");
 
 test("calculates drawdown from the historical closing high", () => {
   assert.ok(Math.abs(calculateDrawdown(90, 100) - 10) < 1e-10);
@@ -20,16 +20,11 @@ test("uses wider tiers for Bitcoin", () => {
   assert.equal(getStrategy("btc", 65).multiplier, 2.5);
 });
 
-test("excludes an unfinished UTC Bitcoin candle", () => {
-  const now = new Date("2026-06-10T10:00:00Z");
-  const currentDay = Date.parse("2026-06-10T00:00:00Z") / 1000;
-  const priorDay = Date.parse("2026-06-09T00:00:00Z") / 1000;
-  assert.equal(isCompletedCandle(currentDay, "crypto", now), false);
-  assert.equal(isCompletedCandle(priorDay, "crypto", now), true);
+test("parses Nasdaq-formatted closing prices", () => {
+  assert.equal(parseNasdaqNumber("29,084.50"), 29084.5);
+  assert.equal(parseNasdaqNumber("$61,509.70"), 61509.7);
 });
 
-test("includes a US index candle only after the close buffer", () => {
-  const candle = Date.parse("2026-06-10T13:30:00Z") / 1000;
-  assert.equal(isCompletedCandle(candle, "us", new Date("2026-06-10T19:00:00Z")), false);
-  assert.equal(isCompletedCandle(candle, "us", new Date("2026-06-10T20:20:00Z")), true);
+test("normalizes Nasdaq dates to ISO format", () => {
+  assert.equal(parseNasdaqDate("06/09/2026"), "2026-06-09");
 });

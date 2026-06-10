@@ -1,162 +1,128 @@
 const { calculateDrawdown, getStrategy } = require("./strategy");
-const { execFile } = require("node:child_process");
-const { promisify } = require("node:util");
-
-const execFileAsync = promisify(execFile);
 
 const ASSETS = [
   {
     id: "nasdaq",
     name: "纳斯达克100",
     symbol: "^NDX",
-    encodedSymbol: "%5ENDX",
+    apiSymbol: "NDX",
+    assetClass: "index",
     currency: "USD",
-    market: "us"
+    historicalHigh: 30660.599609375,
+    historicalHighDate: "2026-06-02"
   },
   {
     id: "sp500",
-    name: "标普500",
-    symbol: "^GSPC",
-    encodedSymbol: "%5EGSPC",
+    name: "标普500（SPY代理）",
+    symbol: "SPY",
+    apiSymbol: "SPY",
+    assetClass: "etf",
     currency: "USD",
-    market: "us"
+    historicalHigh: 759.57,
+    historicalHighDate: "2026-06-02"
   },
   {
     id: "btc",
     name: "Bitcoin",
     symbol: "BTC-USD",
-    encodedSymbol: "BTC-USD",
+    apiSymbol: "BTC",
+    assetClass: "crypto",
     currency: "USD",
-    market: "crypto"
+    historicalHigh: 124752.53125,
+    historicalHighDate: "2025-10-06"
   }
 ];
 
-const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DCA-Dashboard/1.0";
+const REQUEST_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/137.0 Safari/537.36",
+  Accept: "application/json, text/plain, */*",
+  Origin: "https://www.nasdaq.com",
+  Referer: "https://www.nasdaq.com/"
+};
 
-async function fetchJsonWithPowerShell(url) {
-  const escapedUrl = url.replace(/'/g, "''");
-  const command = [
-    "$ProgressPreference='SilentlyContinue'",
-    `$response=Invoke-WebRequest -UseBasicParsing -Uri '${escapedUrl}'`,
-    "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8",
-    "$response.Content"
-  ].join("; ");
-  const { stdout } = await execFileAsync(
-    "powershell.exe",
-    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
-    { maxBuffer: 25 * 1024 * 1024, encoding: "utf8", timeout: 30000 }
+function parseNasdaqNumber(value) {
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return NaN;
+  return Number(value.replace(/[$,%\s,]/g, ""));
+}
+
+function parseNasdaqDate(value) {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value || "");
+  if (!match) throw new Error(`Unexpected market date: ${value}`);
+  return `${match[3]}-${match[1]}-${match[2]}`;
+}
+
+async function fetchNasdaqRows(asset) {
+  const url = new URL(
+    `https://api.nasdaq.com/api/quote/${asset.apiSymbol}/historical`
   );
-  return JSON.parse(stdout.replace(/^\uFEFF/, ""));
-}
+  url.searchParams.set("assetclass", asset.assetClass);
+  url.searchParams.set("fromdate", asset.historicalHighDate);
+  url.searchParams.set("limit", "5000");
 
-async function fetchJson(url) {
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "application/json"
-      },
-      signal: AbortSignal.timeout(20000)
-    });
+  const response = await fetch(url, {
+    headers: REQUEST_HEADERS,
+    signal: AbortSignal.timeout(12000)
+  });
 
-    if (response.ok) return response.json();
-    if (response.status !== 403 && response.status !== 429) {
-      throw new Error(`Data request failed (${response.status}).`);
-    }
-  } catch (error) {
-    if (process.platform !== "win32") throw error;
+  if (!response.ok) {
+    throw new Error(`${asset.name} data request failed (${response.status}).`);
   }
 
-  if (process.platform !== "win32") {
-    throw new Error("Data provider rejected the request.");
-  }
-  return fetchJsonWithPowerShell(url);
-}
-
-function partsForTimeZone(date, timeZone) {
-  const values = {};
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23"
-  }).formatToParts(date);
-
-  for (const part of parts) {
-    if (part.type !== "literal") values[part.type] = part.value;
+  const payload = await response.json();
+  const rows = payload.data?.tradesTable?.rows;
+  if (!Array.isArray(rows) || rows.length < 2) {
+    const detail = payload.status?.bCodeMessage?.[0]?.errorMessage;
+    throw new Error(detail || `${asset.name} returned no completed closing data.`);
   }
 
-  return {
-    date: `${values.year}-${values.month}-${values.day}`,
-    minutes: Number(values.hour) * 60 + Number(values.minute)
-  };
+  return rows
+    .map((row) => ({
+      date: parseNasdaqDate(row.date),
+      close: parseNasdaqNumber(row.close)
+    }))
+    .filter((point) => Number.isFinite(point.close))
+    .sort((left, right) => left.date.localeCompare(right.date));
 }
 
-function candleDate(timestamp, timeZone) {
-  return partsForTimeZone(new Date(timestamp * 1000), timeZone).date;
-}
-
-function isCompletedCandle(timestamp, market, now = new Date()) {
-  if (market === "crypto") {
-    return candleDate(timestamp, "UTC") < partsForTimeZone(now, "UTC").date;
-  }
-
-  const candleDay = candleDate(timestamp, "America/New_York");
-  const current = partsForTimeZone(now, "America/New_York");
-  return candleDay < current.date || (candleDay === current.date && current.minutes >= 16 * 60 + 15);
-}
-
-async function fetchAsset(asset, now = new Date()) {
-  const period2 = Math.floor(now.getTime() / 1000) + 86400;
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${asset.encodedSymbol}`
-    + `?period1=0&period2=${period2}&interval=1d&events=history`;
-
-  const payload = await fetchJson(url);
-  const result = payload.chart?.result?.[0];
-  if (!result || payload.chart?.error) {
-    throw new Error(payload.chart?.error?.description || `${asset.name} returned no data.`);
-  }
-
-  const timestamps = result.timestamp || [];
-  const closes = result.indicators?.quote?.[0]?.close || [];
-  const points = timestamps
-    .map((timestamp, index) => ({ timestamp, close: closes[index] }))
-    .filter((point) => Number.isFinite(point.close) && isCompletedCandle(point.timestamp, asset.market, now));
-
-  if (!points.length) {
-    throw new Error(`${asset.name} has no completed closing data.`);
+async function fetchAsset(asset) {
+  const points = await fetchNasdaqRows(asset);
+  if (points.length < 2) {
+    throw new Error(`${asset.name} has insufficient closing data.`);
   }
 
   const latest = points[points.length - 1];
   const previous = points[points.length - 2];
-  const highPoint = points.reduce(
-    (highest, point) => (point.close > highest.close ? point : highest),
-    points[0]
-  );
+  let highPoint = {
+    close: asset.historicalHigh,
+    date: asset.historicalHighDate
+  };
+
+  for (const point of points) {
+    if (point.close > highPoint.close) highPoint = point;
+  }
+
   const drawdown = calculateDrawdown(latest.close, highPoint.close);
   const strategy = getStrategy(asset.id, drawdown);
-  const timeZone = asset.market === "crypto" ? "UTC" : "America/New_York";
 
   return {
-    ...asset,
+    id: asset.id,
+    name: asset.name,
+    symbol: asset.symbol,
+    currency: asset.currency,
     close: latest.close,
-    closeDate: candleDate(latest.timestamp, timeZone),
-    previousClose: previous?.close ?? null,
-    dailyChangePercent: previous
-      ? ((latest.close / previous.close) - 1) * 100
-      : null,
+    closeDate: latest.date,
+    previousClose: previous.close,
+    dailyChangePercent: ((latest.close / previous.close) - 1) * 100,
     historicalHigh: highPoint.close,
-    historicalHighDate: candleDate(highPoint.timestamp, timeZone),
+    historicalHighDate: highPoint.date,
     drawdownPercent: drawdown,
     strategy
   };
 }
 
 async function fetchMarketSnapshot(now = new Date()) {
-  const results = await Promise.allSettled(ASSETS.map((asset) => fetchAsset(asset, now)));
+  const results = await Promise.allSettled(ASSETS.map((asset) => fetchAsset(asset)));
   const failures = results.filter((result) => result.status === "rejected");
 
   if (failures.length) {
@@ -166,6 +132,7 @@ async function fetchMarketSnapshot(now = new Date()) {
   return {
     updatedAt: now.toISOString(),
     methodology: "Latest completed daily close versus the highest completed historical daily close.",
+    source: "Nasdaq",
     assets: results.map((result) => result.value)
   };
 }
@@ -174,6 +141,6 @@ module.exports = {
   ASSETS,
   fetchAsset,
   fetchMarketSnapshot,
-  isCompletedCandle,
-  partsForTimeZone
+  parseNasdaqDate,
+  parseNasdaqNumber
 };
