@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const { fetchMarketSnapshot } = require("./data-service");
 
 const PORT = Number(process.env.PORT || 4173);
-const HOST = process.env.HOST || "127.0.0.1";
+const HOST = process.env.HOST || "0.0.0.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const REFRESH_HOUR = 8;
 const REFRESH_MINUTE = 10;
