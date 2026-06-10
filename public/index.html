@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f5f6f2">
+    <title>回撤定投仪表盘</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">DCA ALLOCATION DESK</p>
+        <h1>今日定投决策</h1>
+      </div>
+      <div class="topbar-actions">
+        <p id="update-time" class="update-time">正在读取市场数据...</p>
+        <button id="refresh-button" class="icon-button" type="button" title="刷新市场数据" aria-label="刷新市场数据">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <section id="summary" class="summary-band" aria-live="polite">
+        <div>
+          <p class="section-label">今日计划投入</p>
+          <p id="total-amount" class="summary-amount">--</p>
+        </div>
+        <div class="summary-message">
+          <span id="market-state" class="status-dot"></span>
+          <p id="summary-copy">等待最新完整收盘数据</p>
+        </div>
+      </section>
+
+      <section class="controls-band">
+        <div>
+          <h2>基础金额</h2>
+          <p>按每个定投日的常规投入设置，建议金额会自动乘以回撤档位。</p>
+        </div>
+        <div class="amount-controls">
+          <label>
+            <span>纳指</span>
+            <div class="input-wrap"><span>¥</span><input id="base-nasdaq" type="number" min="0" step="10" value="160"></div>
+          </label>
+          <label>
+            <span>标普</span>
+            <div class="input-wrap"><span>¥</span><input id="base-sp500" type="number" min="0" step="10" value="40"></div>
+          </label>
+          <label>
+            <span>BTC</span>
+            <div class="input-wrap"><span>¥</span><input id="base-btc" type="number" min="0" step="10" value="140"></div>
+          </label>
+        </div>
+      </section>
+
+      <section id="asset-grid" class="asset-grid" aria-label="资产定投建议"></section>
+
+      <section class="rules-band">
+        <div class="rules-heading">
+          <p class="section-label">执行纪律</p>
+          <h2>价格决定档位，仓位决定上限</h2>
+        </div>
+        <div class="rules-list">
+          <p><strong>场外QDII</strong><span>今日提交按未知净值成交，回撤信号仅用于决定投入预算。</span></p>
+          <p><strong>场内ETF</strong><span>溢价超过1%时暂缓，不因指数回撤而追高ETF价格。</span></p>
+          <p><strong>BTC上限</strong><span>达到组合15%后停止加仓，优先恢复目标资产比例。</span></p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      数据源为 Yahoo Finance 日线。指数按纽约市场完整收盘、BTC按UTC完整日线计算；每日北京时间08:10自动刷新。内容仅作策略记录，不构成投资建议。
+    </footer>
+
+    <template id="asset-card-template">
+      <article class="asset-card">
+        <div class="asset-card-header">
+          <div>
+            <p class="asset-symbol"></p>
+            <h2 class="asset-name"></h2>
+          </div>
+          <span class="strategy-badge"></span>
+        </div>
+        <div class="price-row">
+          <div>
+            <p class="metric-label">前一完整收盘</p>
+            <p class="close-price"></p>
+            <p class="close-meta"></p>
+          </div>
+          <div class="daily-change-wrap">
+            <p class="metric-label">单日</p>
+            <p class="daily-change"></p>
+          </div>
+        </div>
+        <div class="drawdown-block">
+          <div class="drawdown-heading">
+            <span>距历史最高收盘</span>
+            <strong class="drawdown-value"></strong>
+          </div>
+          <div class="drawdown-track"><span class="drawdown-fill"></span></div>
+          <p class="high-meta"></p>
+        </div>
+        <div class="recommendation">
+          <div>
+            <p class="metric-label">今日建议</p>
+            <p class="recommended-amount"></p>
+          </div>
+          <p class="multiplier"></p>
+        </div>
+      </article>
+    </template>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

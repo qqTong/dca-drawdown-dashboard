@@ -1,0 +1,13 @@
+{
+  "name": "dca-drawdown-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Daily DCA guidance based on drawdowns from historical closing highs.",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
