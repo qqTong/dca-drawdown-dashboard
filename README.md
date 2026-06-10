@@ -4,6 +4,8 @@
 
 完整执行方案见 [纳指、标普与 BTC 定投策略](docs/dca-investment-plan.md)。
 
+适合社交平台发布的版本见 [我的长期定投规则：活人版](docs/dca-strategy-social-post.md)。
+
 ## 运行
 
 需要 Node.js 18 或更高版本：
